@@ -1,0 +1,46 @@
+import mongoose from "mongoose";
+
+const TransportSchema = new mongoose.Schema(
+  {
+    uniqueId: { type: String, default: "" },
+    transporterName: { type: String, required: true },
+    supplierName: { type: String, default: "" },
+    freightCharges: { type: Number, default: 0 },
+    loadingUnloadingCharge: { type: String, default: "" },
+    freePeriod: { type: Number, default: 0 },
+    perDayCharge: { type: Number, default: 0 },
+    insurance: { type: String, default: "" },
+    insuranceCoverageCarriedBy: { type: String, default: "" },
+    loadingLocation: { type: String, default: "" },
+    loadingState: { type: String, default: "" },
+    deliveryPoint: { type: String, default: "" },
+    distanceInKm: { type: Number, default: "" },
+    route: { type: String, default: "" },
+    modeOfDelivery: { type: String, default: "" },
+    startDate: { type: String, default: "" },
+    transitTime: { type: Number, default: 0 },
+    trasporterContactDetails: { type: String, default: "" },
+    driverContactDetails: { type: String, default: "" },
+    vehicleType: { type: String, default: "" },
+    vehicleNumber: { type: String, default: "" },
+    vehicleLoadingCapacity: { type: String, default: "" },
+    lr_Gr_No: { type: String, default: "" },
+    ewayBillInvoice: { type: String, default: "" },
+    panCardFreightInvoice: { type: String, default: "" },
+    trackingSystem: { type: String, default: "" },
+    paymentTerms: { type: String, default: "" },
+    dimension: { type: Number, default: 0 },
+    materialWeight: { type: Number, default: 0 },
+    specialConditions: { type: String, default: "" },
+    materialReceived: { type: String, default: "" },
+    invoiceNumber: { type: String, default: "" },
+    receivedDate: { type: String, default: "" },
+    finalPaymentUTR: { type: String, default: "" },
+    finalPaymentDate: { type: String, default: "" },
+    unit: { type: String, default: "" },
+    remarks: { type: String, default: "" },
+  },
+  { timestamps: true }
+);
+
+export default mongoose.model("Transport", TransportSchema);
