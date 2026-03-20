@@ -796,10 +796,18 @@ export const add_to_localPurchase = async (req, res) => {
 export const getAllIndentForms = async (req, res) => {
   try {
     const { role, username } = req.body;
+    const normalizedRole = String(role || "").trim().toUpperCase();
+    const normalizedUsername = String(username || "").trim();
+    const isDebasishPoUploadOnlyUser =
+      normalizedRole === "PA" &&
+      normalizedUsername.toLowerCase() === "debasish samanta po";
     let filter = {};
 
-    if (role === "PSE") filter = { submittedBy: username };
-    else if (role === "PA") filter = { doerName: username };
+    if (normalizedRole === "PSE") {
+      filter = { submittedBy: normalizedUsername };
+    } else if (normalizedRole === "PA" && !isDebasishPoUploadOnlyUser) {
+      filter = { doerName: normalizedUsername };
+    }
 
     const forms = await Purchase.find(filter).sort({ createdAt: 1 });
 
@@ -927,6 +935,27 @@ export const updateIndentForm = async (req, res) => {
 
 export const deleteIndentForm = async (req, res) => {
   try {
+    const actorRole = String(
+      req.body?.role || req.headers?.["x-user-role"] || "",
+    )
+      .trim()
+      .toUpperCase();
+    const actorUsername = String(
+      req.body?.username || req.headers?.["x-username"] || "",
+    )
+      .trim()
+      .toLowerCase();
+    const isAllowedDeleteUser =
+      actorRole === "ADMIN" &&
+      (actorUsername === "minmoy" || actorUsername === "mrinmoy");
+
+    if (!isAllowedDeleteUser) {
+      return res.status(403).json({
+        success: false,
+        message: "Delete is allowed only for Admin user Minmoy.",
+      });
+    }
+
     const existing = await Purchase.findById(req.params.id);
     await Purchase.findByIdAndDelete(req.params.id);
 
