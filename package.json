@@ -7,7 +7,8 @@
     "dev": "cross-env NODE_ENV=development nodemon server.js",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "seed:delay-demo": "node scripts/seedDelayDummyData.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

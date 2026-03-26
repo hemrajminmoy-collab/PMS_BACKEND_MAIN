@@ -56,6 +56,24 @@ const getOAuthToken = () => {
 let auth = null;
 let drive = null;
 
+const getFolderId = () => String(process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim();
+
+const isFolderAccessError = (error) => {
+  const status = error?.code || error?.response?.status;
+  const message =
+    error?.message ||
+    error?.response?.data?.error?.message ||
+    "";
+  const msg = String(message).toLowerCase();
+
+  return (
+    status === 404 ||
+    msg.includes("file not found") ||
+    msg.includes("insufficient file permissions") ||
+    msg.includes("permission")
+  );
+};
+
 const ensureDrive = () => {
   if (drive) return drive;
   const serviceAccount = getServiceAccount();
@@ -119,19 +137,34 @@ export const uploadToGoogleDrive = async (file, fileNamePrefix) => {
     if (!file) throw new Error("file is required");
     const driveClient = ensureDrive();
 
-    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+    const folderId = getFolderId();
 
-    const response = await driveClient.files.create({
-      requestBody: {
-        name: `${fileNamePrefix}.pdf`,
-        parents: folderId ? [folderId] : undefined,
-      },
-      media: {
-        mimeType: file.mimetype || "application/pdf",
-        body: Readable.from(file.buffer),
-      },
-      fields: "id, webViewLink",
-    });
+    const createFile = async (parents) =>
+      driveClient.files.create({
+        requestBody: {
+          name: `${fileNamePrefix}.pdf`,
+          parents,
+        },
+        media: {
+          mimeType: file.mimetype || "application/pdf",
+          body: Readable.from(file.buffer),
+        },
+        fields: "id, webViewLink",
+      });
+
+    let response;
+    try {
+      response = await createFile(folderId ? [folderId] : undefined);
+    } catch (createError) {
+      if (!folderId || !isFolderAccessError(createError)) {
+        throw createError;
+      }
+
+      console.warn(
+        `Google Drive folder '${folderId}' is not accessible (${createError.message}). Uploading to root drive instead.`
+      );
+      response = await createFile(undefined);
+    }
 
     const fileId = response.data.id;
     if (!fileId) {
@@ -160,14 +193,25 @@ export const uploadToGoogleDrive = async (file, fileNamePrefix) => {
 
 export const testDriveConnection = async () => {
   const driveClient = ensureDrive();
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const folderId = getFolderId();
 
   if (folderId) {
-    const res = await driveClient.files.get({
-      fileId: folderId,
-      fields: "id,name",
-    });
-    return { ok: true, folderId: res.data?.id || folderId, folderName: res.data?.name || "" };
+    try {
+      const res = await driveClient.files.get({
+        fileId: folderId,
+        fields: "id,name",
+      });
+      return { ok: true, folderId: res.data?.id || folderId, folderName: res.data?.name || "" };
+    } catch (error) {
+      if (!isFolderAccessError(error)) throw error;
+      return {
+        ok: false,
+        folderId,
+        folderName: "",
+        message:
+          "Configured GOOGLE_DRIVE_FOLDER_ID is not accessible for current auth. Upload will fallback to root.",
+      };
+    }
   }
 
   const res = await driveClient.files.list({

@@ -20,23 +20,40 @@ const TOKEN_PATH = path.join(
   "config/token.json"
 );
 
-const SCOPES = ["https://www.googleapis.com/auth/drive"];
-
-async function generateToken() {
-  const raw = process.env.GOOGLE_OAUTH_CLIENT_JSON;
-  const b64 = process.env.GOOGLE_OAUTH_CLIENT_B64;
-
-  let credentials = null;
-
-  if (raw || b64) {
-    const jsonStr = raw || Buffer.from(b64, "base64").toString("utf8");
-    credentials = JSON.parse(jsonStr);
-  } else {
-    if (!fs.existsSync(CREDENTIALS_PATH)) {
-      throw new Error("??? googleDrive.oauth.json not found");
-    }
-    credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, "utf8"));
-  }
+const SCOPES = ["https://www.googleapis.com/auth/drive"];
+
+
+
+async function generateToken() {
+
+  const raw = process.env.GOOGLE_OAUTH_CLIENT_JSON;
+
+  const b64 = process.env.GOOGLE_OAUTH_CLIENT_B64;
+
+
+
+  let credentials = null;
+
+
+
+  if (raw || b64) {
+
+    const jsonStr = raw || Buffer.from(b64, "base64").toString("utf8");
+
+    credentials = JSON.parse(jsonStr);
+
+  } else {
+
+    if (!fs.existsSync(CREDENTIALS_PATH)) {
+
+      throw new Error("??? googleDrive.oauth.json not found");
+
+    }
+
+    credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, "utf8"));
+
+  }
+
 
   const { client_secret, client_id, redirect_uris } =
     credentials.installed;
@@ -78,3 +95,5 @@ async function generateToken() {
 generateToken().catch((err) => {
   console.error("❌ Token generation failed:", err.message);
 });
+
+

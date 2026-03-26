@@ -15,6 +15,8 @@ import {
   deleteIndentForm,
   uploadComparisonPDF,
   showAllIndentForms,
+  getDelayFollowups,
+  upsertDelayFollowup,
   add_to_localPurchase,
   getManualClosedStoreItems,
   getIndentFormByUniqueId,
@@ -49,6 +51,7 @@ import { getRecentAuditLogs } from "../controllers/auditLog.controller.js";
 import { requireAuditLogAccess, requireAuthToken } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
+const isObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(String(value || ""));
 
 /* =========================================================
    ✅ Multer Config — PDF ONLY
@@ -71,6 +74,8 @@ router.post("/", createIndentForm);
 // Purchase
 router.post("/all", getAllIndentForms);
 router.get("/all", showAllIndentForms);
+router.post("/delay-followup", getDelayFollowups);
+router.put("/delay-followup", upsertDelayFollowup);
 
 // Local Purchase
 router.post("/localpurchase", createLocalPurchaseForm);
@@ -149,9 +154,12 @@ router.get(
 router.get("/audit-logs", requireAuthToken, requireAuditLogAccess, getRecentAuditLogs);
 
 /* ---------- By Mongo ID ---------- */
-router.get("/:id", getIndentFormById);
-router.put("/:id", updateIndentForm);
-router.delete("/:id", deleteIndentForm);
+router.get("/:id", (req, res, next) =>
+  (isObjectId(req.params.id) ? getIndentFormById(req, res, next) : next()));
+router.put("/:id", (req, res, next) =>
+  (isObjectId(req.params.id) ? updateIndentForm(req, res, next) : next()));
+router.delete("/:id", (req, res, next) =>
+  (isObjectId(req.params.id) ? deleteIndentForm(req, res, next) : next()));
 
 // Get Quotation PDF (single)
 router.post("/getquotation/pdf/:rowId", uploadPdfOnly.single("file"), uploadGetQuotationPDF);

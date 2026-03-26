@@ -1,6 +1,7 @@
 import { uploadToGoogleDrive } from "../config/googleDrive.js";
 import Purchase from "../models/purchase.model.js";
 import LocalPurchase from "../models/localpurchase.model.js";
+import DelayFollowup from "../models/delayFollowup.model.js";
 import mongoose from "mongoose";
 import crypto from "crypto";
 import StoreInvoice from "../models/storeInvoice.model.js";
@@ -897,6 +898,99 @@ export const showAllIndentForms = async (req, res) => {
    ✅ GET / UPDATE / DELETE by Mongo ID
    ========================================================= */
 
+export const getDelayFollowups = async (req, res) => {
+  try {
+    const { role, username } = req.body || {};
+    const normalizedRole = String(role || "").trim().toUpperCase();
+    const normalizedUsername = String(username || "").trim();
+
+    let filter = {};
+    if (normalizedRole === "PSE") {
+      filter = { pseName: normalizedUsername };
+    }
+
+    const rows = await DelayFollowup.find(filter).sort({ updatedAt: -1, createdAt: -1 });
+    return res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error("âŒ Error Fetching Delay Followups:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+export const upsertDelayFollowup = async (req, res) => {
+  try {
+    const payload = stripAuditMetaFields(req.body || {});
+
+    const uniqueId = String(payload.uniqueId || "").trim();
+    const stageId = String(payload.stageId || "").trim();
+    const stageLabel = String(payload.stageLabel || "").trim();
+    const pseName = String(payload.pseName || "").trim();
+    const remarks = String(payload.remarks || "").trim();
+    const estimatedCompletionDate = String(payload.estimatedCompletionDate || "").trim();
+    const isCompleted = Boolean(payload.isCompleted);
+    const changedBy = String(
+      req.body?.username || req.headers?.["x-username"] || pseName || "",
+    ).trim();
+
+    if (!uniqueId || !stageId || !stageLabel || !pseName || !estimatedCompletionDate) {
+      return res.status(400).json({
+        success: false,
+        message: "uniqueId, stageId, stageLabel, pseName and estimatedCompletionDate are required.",
+      });
+    }
+
+    const existing = await DelayFollowup.findOne({ uniqueId, stageId, pseName });
+
+    if (!existing) {
+      const created = await DelayFollowup.create({
+        uniqueId,
+        stageId,
+        stageLabel,
+        pseName,
+        remarks,
+        estimatedCompletionDate,
+        isCompleted,
+        completedAt: isCompleted ? new Date() : null,
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Delay followup created.",
+        data: created,
+      });
+    }
+
+    const estimateChanged = existing.estimatedCompletionDate !== estimatedCompletionDate;
+    if (estimateChanged) {
+      existing.estimateHistory.push({
+        estimatedCompletionDate: existing.estimatedCompletionDate || "",
+        remarks: existing.remarks || "",
+        changedAt: new Date(),
+        changedBy,
+      });
+    }
+
+    existing.stageLabel = stageLabel;
+    existing.remarks = remarks;
+    existing.estimatedCompletionDate = estimatedCompletionDate;
+    existing.isCompleted = isCompleted;
+    existing.completedAt = isCompleted ? existing.completedAt || new Date() : null;
+
+    await existing.save();
+
+    return res.json({
+      success: true,
+      message: estimateChanged
+        ? "Delay followup updated with new estimated date."
+        : "Delay followup updated.",
+      data: existing,
+    });
+  } catch (error) {
+    console.error("âŒ Error Upserting Delay Followup:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 export const getIndentFormById = async (req, res) => {
   try {
     const form = await Purchase.findById(req.params.id);
@@ -910,6 +1004,10 @@ export const getIndentFormById = async (req, res) => {
 
 export const updateIndentForm = async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: "Invalid id format" });
+    }
+
     const existing = await Purchase.findById(req.params.id);
     if (!existing) return res.status(404).json({ success: false, message: "Not Found" });
 
