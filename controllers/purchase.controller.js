@@ -58,6 +58,14 @@ const summarizeIds = (ids = [], limit = 10) => {
   return [...arr.slice(0, limit), `+${arr.length - limit} more`];
 };
 
+const normalizeComparableText = (value) =>
+  String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const normalizeComparableLower = (value) =>
+  normalizeComparableText(value).toLowerCase();
+
 /* ------------------ Indian Holidays (YYYY-MM-DD) ------------------ */
 const INDIAN_HOLIDAYS = ["2025-01-26", "2025-08-15", "2025-10-02", "2025-12-25"];
 
@@ -87,6 +95,24 @@ const calculateDelayDays = (planned, actual) => {
   if (msDiff <= 0) return "0 days";
   const days = Math.floor(msDiff / (1000 * 60 * 60 * 24));
   return `${days} days`;
+};
+
+const parseDateSafe = (value) => {
+  if (!value) return null;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+};
+
+// Delay starts only after planned date is over.
+// If actual date is missing, current time is used for running delay.
+const computeRunningDelay = (plannedValue, actualValue, now = new Date()) => {
+  const planned = parseDateSafe(plannedValue);
+  if (!planned) return "";
+
+  const actual = parseDateSafe(actualValue);
+  const end = actual || now;
+  return calculateDelayDays(planned, end);
 };
 
 /* ------------------ Planned Date Logic (PC Follow Up) ------------------ */
@@ -535,13 +561,84 @@ export const createIndentForm = async (req, res) => {
       orderApprovedBy = "",
     } = req.body || {};
 
+    const normalizedIndentNumber = normalizeComparableText(indentNumber);
+    const normalizedItemDescription = normalizeComparableText(itemDescription);
+
+    if (!normalizedIndentNumber || !normalizedItemDescription) {
+      return res.status(400).json({
+        success: false,
+        message: "Indent Number and Item Description are required.",
+      });
+    }
+
+    const duplicateIndent = await Purchase.findOne({
+      $expr: {
+        $and: [
+          {
+            $eq: [
+              {
+                $toLower: {
+                  $trim: { input: { $ifNull: ["$indentNumber", ""] } },
+                },
+              },
+              normalizeComparableLower(normalizedIndentNumber),
+            ],
+          },
+          {
+            $eq: [
+              {
+                $toLower: {
+                  $trim: { input: { $ifNull: ["$itemDescription", ""] } },
+                },
+              },
+              normalizeComparableLower(normalizedItemDescription),
+            ],
+          },
+        ],
+      },
+    }).select("_id uniqueId indentNumber itemDescription");
+
+    if (duplicateIndent) {
+      await writeAuditLogSafe({
+        req,
+        action: "PURCHASE_CREATE_SKIPPED_DUPLICATE",
+        targetModel: "Purchase",
+        targetId: duplicateIndent._id,
+        uniqueId: duplicateIndent.uniqueId || "",
+        changedFields: [],
+        summary: `Duplicate indent skipped for indentNumber=${normalizedIndentNumber}`,
+        actor: { username: submittedBy || "" },
+        metadata: {
+          duplicateBy: ["indentNumber", "itemDescription"],
+          indentNumber: normalizedIndentNumber,
+          itemDescription: normalizedItemDescription,
+          existingRowId: String(duplicateIndent._id),
+          existingUniqueId: duplicateIndent.uniqueId || "",
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        skipped: true,
+        message:
+          "Duplicate skipped: same Indent Number and Item Description already exists.",
+        data: {
+          existingRowId: duplicateIndent._id,
+          existingUniqueId: duplicateIndent.uniqueId || "",
+          indentNumber: duplicateIndent.indentNumber || normalizedIndentNumber,
+          itemDescription:
+            duplicateIndent.itemDescription || normalizedItemDescription,
+        },
+      });
+    }
+
     const form = await Purchase.create({
       site,
       section,
       uniqueId,
-      indentNumber,
+      indentNumber: normalizedIndentNumber,
       itemNumber,
-      itemDescription,
+      itemDescription: normalizedItemDescription,
       uom,
       totalQuantity,
       submittedBy,
@@ -563,9 +660,9 @@ export const createIndentForm = async (req, res) => {
           site,
           section,
           uniqueId,
-          indentNumber,
+          indentNumber: normalizedIndentNumber,
           itemNumber,
-          itemDescription,
+          itemDescription: normalizedItemDescription,
           uom,
           totalQuantity,
           submittedBy,
@@ -850,13 +947,56 @@ export const getAllIndentForms = async (req, res) => {
         if (actualMr) obj.actualMaterialReceived = actualMr;
       }
 
-      if (obj.plannedMaterialReceived && obj.actualMaterialReceived && !obj.timeDelayMaterialReceived) {
-        const plannedDt = new Date(obj.plannedMaterialReceived);
-        const actualDt = new Date(obj.actualMaterialReceived);
-        if (!Number.isNaN(plannedDt.getTime()) && !Number.isNaN(actualDt.getTime())) {
-          obj.timeDelayMaterialReceived = calculateDelayDays(plannedDt, actualDt);
-        }
-      }
+      // Recompute delay values dynamically:
+      // delay remains 0 days until planned date is crossed.
+      obj.timeDelayGetQuotation = computeRunningDelay(
+        obj.plannedGetQuotation,
+        obj.actualGetQuotation,
+      );
+      obj.timeDelayTechApproval = computeRunningDelay(
+        obj.plannedTechApproval,
+        obj.actualTechApproval,
+      );
+      obj.timeDelayCommercialNegotiation = computeRunningDelay(
+        obj.plannedCommercialNegotiation,
+        obj.actualCommercialNegotiation,
+      );
+      obj.timeDelayPoGeneration = computeRunningDelay(
+        obj.plannedPoGeneration,
+        obj.actualPoGeneration,
+      );
+      obj.timeDelayPCFollowUp1 = computeRunningDelay(
+        obj.plannedPCFollowUp1,
+        obj.actualPCFollowUp1,
+      );
+      obj.timeDelayPCFollowUp2 = computeRunningDelay(
+        obj.plannedPCFollowUp2,
+        obj.actualPCFollowUp2,
+      );
+      obj.timeDelayPCFollowUp3 = computeRunningDelay(
+        obj.plannedPCFollowUp3,
+        obj.actualPCFollowUp3,
+      );
+      obj.timeDelayPaymentPWP = computeRunningDelay(
+        obj.plannedPaymentPWP,
+        obj.actualPaymentPWP,
+      );
+      obj.timeDelayPaymentBBD = computeRunningDelay(
+        obj.plannedPaymentBBD,
+        obj.actualPaymentBBD,
+      );
+      obj.timeDelayPaymentFAR = computeRunningDelay(
+        obj.plannedPaymentFAR,
+        obj.actualPaymentFAR,
+      );
+      obj.timeDelayPaymentPAPW = computeRunningDelay(
+        obj.plannedPaymentPAPW,
+        obj.actualPaymentPAPW,
+      );
+      obj.timeDelayMaterialReceived = computeRunningDelay(
+        obj.plannedMaterialReceived,
+        obj.actualMaterialReceived,
+      );
 
       return obj;
     });
