@@ -1741,24 +1741,22 @@ export const createPoAndLinkItems = async (req, res) => {
       return res.status(400).json({ success: false, message: "rowIds required" });
     }
 
-    if (!file) {
-      return res.status(400).json({
-        success: false,
-        message: "PO PDF required. Send multipart file or pdfBase64.",
-      });
-    }
+    let driveFileId = "";
+    let webViewLink = "";
 
-    // 🔹 Upload PO PDF ONCE
-    const uploaded = await uploadToGoogleDrive(file, `bulk_po_${Date.now()}`);
-    const driveFileId = uploaded?.driveFileId || uploaded?.fileId || "";
-    let webViewLink = uploaded?.webViewLink || uploaded?.fileUrl || "";
+    // Optional PDF: PO details can be applied first, and PDF can be uploaded later.
+    if (file) {
+      const uploaded = await uploadToGoogleDrive(file, `bulk_po_${Date.now()}`);
+      driveFileId = uploaded?.driveFileId || uploaded?.fileId || "";
+      webViewLink = uploaded?.webViewLink || uploaded?.fileUrl || "";
 
-    if (!webViewLink && driveFileId) {
-      webViewLink = `https://drive.google.com/file/d/${driveFileId}/view`;
-    }
+      if (!webViewLink && driveFileId) {
+        webViewLink = `https://drive.google.com/file/d/${driveFileId}/view`;
+      }
 
-    if (!driveFileId || !webViewLink) {
-      return res.status(500).json({ success: false, message: "Drive upload failed" });
+      if (!driveFileId || !webViewLink) {
+        return res.status(500).json({ success: false, message: "Drive upload failed" });
+      }
     }
 
     const rows = await Purchase.find({ _id: { $in: rowIds } });
@@ -1778,13 +1776,15 @@ export const createPoAndLinkItems = async (req, res) => {
         leadDays: Number(leadDays || 0),
         paymentCondition,
         papwDays: Number(papwDays || 0),
-
-        poPdfDriveFileId: driveFileId,
-        poPdfWebViewLink: webViewLink,
-        poPdfUploadedAt: now,
-        poPdfUploadedBy: username,
-        poPdfUploadedRole: role,
       };
+
+      if (driveFileId && webViewLink) {
+        updateData.poPdfDriveFileId = driveFileId;
+        updateData.poPdfWebViewLink = webViewLink;
+        updateData.poPdfUploadedAt = now;
+        updateData.poPdfUploadedBy = username;
+        updateData.poPdfUploadedRole = role;
+      }
 
       // 🔥 EXACT SAME LOGIC AS SINGLE UPDATE
       applyPcPlannedDates(updateData, row);
@@ -1797,30 +1797,35 @@ export const createPoAndLinkItems = async (req, res) => {
         changedFields: buildFieldChanges(row, updateData, Object.keys(updateData)),
       });
 
+      const pushData = {
+        poHistory: {
+          poNumber,
+          poDate,
+          vendorName,
+          leadDays: Number(leadDays || 0),
+          paymentCondition,
+          papwDays: Number(papwDays || 0),
+          changedAt: now,
+          changedBy: username,
+        },
+      };
+
+      if (driveFileId && webViewLink) {
+        pushData.poPdfHistory = {
+          driveFileId,
+          webViewLink,
+          uploadedAt: now,
+          uploadedBy: username,
+          uploadedRole: role,
+        };
+      }
+
       bulkOps.push({
         updateOne: {
           filter: { _id: row._id },
           update: {
             $set: updateData,
-            $push: {
-              poPdfHistory: {
-                driveFileId,
-                webViewLink,
-                uploadedAt: now,
-                uploadedBy: username,
-                uploadedRole: role,
-              },
-              poHistory: {
-                poNumber,
-                poDate,
-                vendorName,
-                leadDays: Number(leadDays || 0),
-                paymentCondition,
-                papwDays: Number(papwDays || 0),
-                changedAt: now,
-                changedBy: username,
-              },
-            },
+            $push: pushData,
           },
         },
       });
@@ -1843,11 +1848,14 @@ export const createPoAndLinkItems = async (req, res) => {
 
     return res.json({
       success: true,
-      message: `Bulk PO applied correctly to ${rows.length} item(s)`,
+      message: file
+        ? `Bulk PO applied correctly to ${rows.length} item(s)`
+        : `Bulk PO details applied correctly to ${rows.length} item(s). Upload PO PDF later if needed.`,
       data: {
         linkedRows: rows.length,
         driveFileId,
         webViewLink,
+        pdfAttached: Boolean(file),
       },
     });
   } catch (error) {
