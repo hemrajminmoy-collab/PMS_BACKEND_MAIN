@@ -47,7 +47,7 @@ import {
   uploadGetQuotationPDF,
   getGetQuotationPdfByRowId,
 } from "../controllers/purchase.controller.js";
-import { getRecentAuditLogs } from "../controllers/auditLog.controller.js";
+import { createInputAuditLog, getRecentAuditLogs } from "../controllers/auditLog.controller.js";
 import { requireAuditLogAccess, requireAuthToken } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
@@ -152,6 +152,7 @@ router.get(
 
 // Audit logs (7-day window, Minmoy/Mrinmoy only)
 router.get("/audit-logs", requireAuthToken, requireAuditLogAccess, getRecentAuditLogs);
+router.post("/audit-logs/input", createInputAuditLog);
 
 /* ---------- By Mongo ID ---------- */
 router.get("/:id", (req, res, next) =>
