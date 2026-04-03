@@ -4,6 +4,19 @@ import { writeAuditLogSafe } from "../utils/auditLog.js";
 
 export const addUser = async (req, res) => {
   try {
+    const actorRole = String(req.authUser?.role || "").trim().toUpperCase();
+    const actorUsername = String(req.authUser?.username || "")
+      .trim()
+      .toLowerCase();
+    const canAddUser = actorRole === "ADMIN" && actorUsername === "minmoy";
+
+    if (!canAddUser) {
+      return res.status(403).json({
+        success: false,
+        message: "Only ADMIN Minmoy can add user",
+      });
+    }
+
     const { username, password, role } = req.body;
 
     // Validate input
