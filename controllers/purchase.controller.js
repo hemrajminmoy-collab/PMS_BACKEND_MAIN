@@ -896,9 +896,11 @@ export const getAllIndentForms = async (req, res) => {
     const { role, username } = req.body;
     const normalizedRole = String(role || "").trim().toUpperCase();
     const normalizedUsername = String(username || "").trim();
+    const normalizedLowerUsername = normalizedUsername.toLowerCase();
     const isDebasishPoUploadOnlyUser =
       normalizedRole === "PA" &&
-      normalizedUsername.toLowerCase() === "debasish samanta po";
+      (normalizedLowerUsername === "debasish samanta po" ||
+        normalizedLowerUsername === "debasis samanta po");
     let filter = {};
 
     if (normalizedRole === "PSE") {
@@ -1551,6 +1553,10 @@ export const uploadPoPDF = async (req, res) => {
     const file = getPdfFileFromReq(req);
     const role = req.body?.role || "";
     const username = req.body?.username || "";
+    const normalizedLowerUsername = String(username || "").trim().toLowerCase();
+    const isDebasishPoUploadOnlyUser =
+      normalizedLowerUsername === "debasish samanta po" ||
+      normalizedLowerUsername === "debasis samanta po";
 
     if (!file) return res.status(400).json({ success: false, message: "No file uploaded" });
     if (!rowId) return res.status(400).json({ success: false, message: "Row ID missing" });
@@ -1559,7 +1565,11 @@ export const uploadPoPDF = async (req, res) => {
     if (!purchase) return res.status(404).json({ success: false, message: "Row not found" });
 
     const alreadyUploaded = Boolean(purchase.poPdfDriveFileId || purchase.poPdfWebViewLink);
-    if (alreadyUploaded && String(role).toUpperCase() === "PA") {
+    if (
+      alreadyUploaded &&
+      String(role).toUpperCase() === "PA" &&
+      !isDebasishPoUploadOnlyUser
+    ) {
       return res.status(403).json({
         success: false,
         message: "PO PDF already uploaded. PA cannot upload again. Please contact PSE/Admin.",
