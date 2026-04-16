@@ -6,6 +6,7 @@ import {
   createLocalPurchaseForm,
   getAllIndentForms,
   getAllLocalPurchaseForms,
+  getVendorMasterList,
   getLatestUniqueId,
   getLatestLocalPurchaseUniqueId,
   updatePurchase,
@@ -74,6 +75,7 @@ router.post("/", createIndentForm);
 // Purchase
 router.post("/all", getAllIndentForms);
 router.get("/all", showAllIndentForms);
+router.get("/vendor-master", getVendorMasterList);
 router.post("/delay-followup", getDelayFollowups);
 router.put("/delay-followup", upsertDelayFollowup);
 

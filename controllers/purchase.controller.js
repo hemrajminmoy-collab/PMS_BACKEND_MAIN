@@ -2,6 +2,7 @@ import { uploadToGoogleDrive } from "../config/googleDrive.js";
 import Purchase from "../models/purchase.model.js";
 import LocalPurchase from "../models/localpurchase.model.js";
 import DelayFollowup from "../models/delayFollowup.model.js";
+import VendorMaster from "../models/vendorMaster.model.js";
 import mongoose from "mongoose";
 import crypto from "crypto";
 import StoreInvoice from "../models/storeInvoice.model.js";
@@ -65,6 +66,38 @@ const normalizeComparableText = (value) =>
 
 const normalizeComparableLower = (value) =>
   normalizeComparableText(value).toLowerCase();
+
+const getCanonicalVendorNameFromMaster = async (value) => {
+  const normalizedValue = normalizeComparableText(value);
+  if (!normalizedValue) return "";
+
+  const vendorRows = await VendorMaster.find(
+    { isActive: true },
+    { name: 1 },
+  ).lean();
+
+  const matchedVendor = (vendorRows || []).find(
+    (vendor) =>
+      normalizeComparableLower(vendor?.name) ===
+      normalizeComparableLower(normalizedValue),
+  );
+
+  return normalizeComparableText(matchedVendor?.name || "");
+};
+
+const normalizeVendorNameOrThrow = async (value) => {
+  const normalizedValue = normalizeComparableText(value);
+  if (!normalizedValue) return "";
+
+  const canonicalName = await getCanonicalVendorNameFromMaster(normalizedValue);
+  if (!canonicalName) {
+    const error = new Error("Vendor name must be selected from Vendor Master");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return canonicalName;
+};
 
 /* ------------------ Indian Holidays (YYYY-MM-DD) ------------------ */
 const INDIAN_HOLIDAYS = ["2025-01-26", "2025-08-15", "2025-10-02", "2025-12-25"];
@@ -380,6 +413,9 @@ const applyMaterialReceivedDates = (updateData, existingDoc) => {
 export const updatePurchase = async (req, res) => {
   try {
     const updateData = stripAuditMetaFields({ ...req.body });
+    if (Object.prototype.hasOwnProperty.call(updateData, "vendorName")) {
+      updateData.vendorName = await normalizeVendorNameOrThrow(updateData.vendorName);
+    }
 
     const purchase = await Purchase.findById(req.params.id);
     if (!purchase) {
@@ -492,6 +528,9 @@ export const updateLocalPurchase = async (req, res) => {
     }
 
     const updateData = stripAuditMetaFields({ ...req.body });
+    if (Object.prototype.hasOwnProperty.call(updateData, "vendorName")) {
+      updateData.vendorName = await normalizeVendorNameOrThrow(updateData.vendorName);
+    }
     const updated = await LocalPurchase.findByIdAndUpdate(req.params.id, updateData, { new: true });
 
     await writeAuditLogSafe({
@@ -1022,7 +1061,30 @@ export const getAllLocalPurchaseForms = async (req, res) => {
     return res.json({ success: true, data: forms });
   } catch (error) {
     console.error("❌ Error Fetching LocalPurchase Forms:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(error?.statusCode || 500).json({ success: false, error: error.message });
+  }
+};
+
+export const getVendorMasterList = async (_req, res) => {
+  try {
+    const vendors = await VendorMaster.find(
+      { isActive: true },
+      { name: 1, code: 1 },
+    )
+      .sort({ name: 1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      data: (vendors || []).map((vendor) => ({
+        _id: vendor._id,
+        name: normalizeComparableText(vendor.name),
+        code: normalizeComparableText(vendor.code),
+      })),
+    });
+  } catch (error) {
+    console.error("Vendor master fetch failed:", error);
+    return res.status(error?.statusCode || 500).json({ success: false, error: error.message });
   }
 };
 
@@ -1055,7 +1117,7 @@ export const getDelayFollowups = async (req, res) => {
     return res.json({ success: true, data: rows });
   } catch (error) {
     console.error("âŒ Error Fetching Delay Followups:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(error?.statusCode || 500).json({ success: false, error: error.message });
   }
 };
 
@@ -1129,7 +1191,7 @@ export const upsertDelayFollowup = async (req, res) => {
     });
   } catch (error) {
     console.error("âŒ Error Upserting Delay Followup:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(error?.statusCode || 500).json({ success: false, error: error.message });
   }
 };
 
@@ -1140,7 +1202,7 @@ export const getIndentFormById = async (req, res) => {
     return res.json({ success: true, data: form });
   } catch (error) {
     console.error("❌ Error Fetching Form:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(error?.statusCode || 500).json({ success: false, error: error.message });
   }
 };
 
@@ -1169,7 +1231,7 @@ export const updateIndentForm = async (req, res) => {
     return res.json({ success: true, message: "Form Updated Successfully", data: form });
   } catch (error) {
     console.error("❌ Error Updating Form:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(error?.statusCode || 500).json({ success: false, error: error.message });
   }
 };
 
@@ -1674,6 +1736,8 @@ export const bulkUpdateLocalPurchaseSelected = async (req, res) => {
       return res.status(400).json({ success: false, message: "rowIds array is required" });
     }
 
+    vendorName = await normalizeVendorNameOrThrow(vendorName);
+
     // ✅ normalize transport dropdown values
     const normalizeMode = (v) => {
       const s = String(v || "").trim();
@@ -1685,7 +1749,7 @@ export const bulkUpdateLocalPurchaseSelected = async (req, res) => {
     const updateData = {
       invoiceDate: String(invoiceDate || ""),
       invoiceNumber: String(invoiceNumber || ""),
-      vendorName: String(vendorName || ""),
+      vendorName,
       modeOfTransport: normalizeMode(modeOfTransport),
       transporterName: String(transporterName || ""),
       remarks: String(remarks || ""),
@@ -1750,6 +1814,8 @@ export const createPoAndLinkItems = async (req, res) => {
     if (!Array.isArray(rowIds) || rowIds.length === 0) {
       return res.status(400).json({ success: false, message: "rowIds required" });
     }
+
+    vendorName = await normalizeVendorNameOrThrow(vendorName);
 
     let driveFileId = "";
     let webViewLink = "";
@@ -1905,6 +1971,8 @@ export const createStoreInvoiceAndLinkItems = async (req, res) => {
     if (!Array.isArray(rowIds) || rowIds.length === 0) {
       return res.status(400).json({ success: false, message: "rowIds array is required" });
     }
+
+    vendorName = await normalizeVendorNameOrThrow(vendorName);
 
     if (!file) {
       return res.status(400).json({
