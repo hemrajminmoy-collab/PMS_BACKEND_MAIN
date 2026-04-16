@@ -64,39 +64,37 @@ const normalizeComparableText = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const normalizeComparableLower = (value) =>
-  normalizeComparableText(value).toLowerCase();
+const normalizeComparableKey = (value) =>
+  normalizeComparableText(value)
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const getCanonicalVendorNameFromMaster = async (value) => {
   const normalizedValue = normalizeComparableText(value);
   if (!normalizedValue) return "";
 
+  const compareKey = normalizeComparableKey(normalizedValue);
   const vendorRows = await VendorMaster.find(
     { isActive: true },
     { name: 1 },
   ).lean();
 
-  const matchedVendor = (vendorRows || []).find(
-    (vendor) =>
-      normalizeComparableLower(vendor?.name) ===
-      normalizeComparableLower(normalizedValue),
-  );
+  const matchedVendor = (vendorRows || []).find((vendor) => {
+    return normalizeComparableKey(vendor?.name) === compareKey;
+  });
 
   return normalizeComparableText(matchedVendor?.name || "");
 };
 
 const normalizeVendorNameOrThrow = async (value) => {
-  const normalizedValue = normalizeComparableText(value);
-  if (!normalizedValue) return "";
+  const normalized = normalizeComparableText(value);
+  if (!normalized) return "";
 
-  const canonicalName = await getCanonicalVendorNameFromMaster(normalizedValue);
-  if (!canonicalName) {
-    const error = new Error("Vendor name must be selected from Vendor Master");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return canonicalName;
+  // Try to find in master, but don't throw if missing
+  const canonical = await getCanonicalVendorNameFromMaster(normalized);
+  return canonical || normalized; // fallback to user input
 };
 
 /* ------------------ Indian Holidays (YYYY-MM-DD) ------------------ */
@@ -516,7 +514,8 @@ export const updatePurchase = async (req, res) => {
     return res.json({ success: true, data: updated });
   } catch (error) {
     console.error("❌ Update error:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    const statusCode = error?.statusCode || 500;
+    return res.status(statusCode).json({ success: false, error: error.message });
   }
 };
 
@@ -546,7 +545,8 @@ export const updateLocalPurchase = async (req, res) => {
     return res.json({ success: true, data: updated });
   } catch (error) {
     console.error("❌ Update LocalPurchase error:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    const statusCode = error?.statusCode || 500;
+    return res.status(statusCode).json({ success: false, error: error.message });
   }
 };
 
@@ -1065,13 +1065,22 @@ export const getAllLocalPurchaseForms = async (req, res) => {
   }
 };
 
-export const getVendorMasterList = async (_req, res) => {
+export const getVendorMasterList = async (req, res) => {
   try {
-    const vendors = await VendorMaster.find(
-      { isActive: true },
-      { name: 1, code: 1 },
-    )
+    const query = String(req.query.query || req.query.q || "").trim();
+    const filter = { isActive: true };
+
+    if (query) {
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escaped, "i");
+      filter.name = regex;
+    } else {
+      return res.json({ success: true, data: [] });
+    }
+
+    const vendors = await VendorMaster.find(filter, { name: { $regex: new RegExp(`^${normalizedInput}$`, 'i') }, code: 1 })
       .sort({ name: 1 })
+      .limit(50)
       .lean();
 
     return res.json({
