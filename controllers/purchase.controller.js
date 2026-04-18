@@ -935,7 +935,7 @@ export const add_to_localPurchase = async (req, res) => {
 
 export const getAllIndentForms = async (req, res) => {
   try {
-    const { role, username } = req.body;
+    const { role, username, limit, skip } = req.body;
     const normalizedRole = String(role || "").trim().toUpperCase();
     const normalizedUsername = String(username || "").trim();
     const normalizedLowerUsername = normalizedUsername.toLowerCase();
@@ -951,7 +951,19 @@ export const getAllIndentForms = async (req, res) => {
       filter = { doerName: normalizedUsername };
     }
 
-    const forms = await Purchase.find(filter).sort({ createdAt: 1 });
+    const parsedLimit = Number(limit);
+    const parsedSkip = Number(skip);
+    const shouldPaginate =
+      Number.isInteger(parsedLimit) && parsedLimit > 0 && parsedSkip >= 0;
+
+    const total = shouldPaginate ? await Purchase.countDocuments(filter) : null;
+
+    let query = Purchase.find(filter).sort({ createdAt: -1 });
+    if (shouldPaginate) {
+      query = query.skip(parsedSkip).limit(parsedLimit);
+    }
+
+    const forms = await query;
 
     const enriched = forms.map((doc) => {
       const obj = doc.toObject();
@@ -1045,7 +1057,19 @@ export const getAllIndentForms = async (req, res) => {
       return obj;
     });
 
-    return res.json({ success: true, data: enriched });
+    return res.json({
+      success: true,
+      data: enriched,
+      pagination: shouldPaginate
+        ? {
+            total,
+            limit: parsedLimit,
+            skip: parsedSkip,
+            fetched: enriched.length,
+            hasMore: parsedSkip + enriched.length < total,
+          }
+        : undefined,
+    });
   } catch (error) {
     console.error("❌ Error Fetching Forms:", error);
     return res.status(500).json({ success: false, error: error.message });
@@ -1054,14 +1078,42 @@ export const getAllIndentForms = async (req, res) => {
 
 export const getAllLocalPurchaseForms = async (req, res) => {
   try {
-    const { role, username } = req.body;
+    const { role, username, limit, skip } = req.body;
+    const normalizedRole = String(role || "").trim().toUpperCase();
+    const normalizedUsername = String(username || "").trim();
     let filter = {};
 
-    if (role === "PSE") filter = { submittedBy: username };
-    else if (role === "PA") filter = { doerName: username };
+    if (normalizedRole === "PSE") filter = { submittedBy: normalizedUsername };
+    else if (normalizedRole === "PA") filter = { doerName: normalizedUsername };
 
-    const forms = await LocalPurchase.find(filter).sort({ createdAt: 1 });
-    return res.json({ success: true, data: forms });
+    const parsedLimit = Number(limit);
+    const parsedSkip = Number(skip);
+    const shouldPaginate =
+      Number.isInteger(parsedLimit) && parsedLimit > 0 && parsedSkip >= 0;
+
+    const total = shouldPaginate
+      ? await LocalPurchase.countDocuments(filter)
+      : null;
+
+    let query = LocalPurchase.find(filter).sort({ createdAt: -1 });
+    if (shouldPaginate) {
+      query = query.skip(parsedSkip).limit(parsedLimit);
+    }
+
+    const forms = await query;
+    return res.json({
+      success: true,
+      data: forms,
+      pagination: shouldPaginate
+        ? {
+            total,
+            limit: parsedLimit,
+            skip: parsedSkip,
+            fetched: forms.length,
+            hasMore: parsedSkip + forms.length < total,
+          }
+        : undefined,
+    });
   } catch (error) {
     console.error("❌ Error Fetching LocalPurchase Forms:", error);
     return res.status(error?.statusCode || 500).json({ success: false, error: error.message });
