@@ -64,6 +64,9 @@ const normalizeComparableText = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const normalizeComparableLower = (value) =>
+  normalizeComparableText(value).toLowerCase();
+
 const normalizeComparableKey = (value) =>
   normalizeComparableText(value)
     .toLowerCase()
