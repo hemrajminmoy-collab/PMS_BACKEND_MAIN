@@ -949,7 +949,9 @@ export const getAllIndentForms = async (req, res) => {
       filter = { submittedBy: normalizedUsername };
     } else if (normalizedRole === "PA" && !isDebasishPoUploadOnlyUser) {
       filter = { doerName: normalizedUsername };
-    } else if (normalizedRole === "STORE") {
+    } else if ((normalizedRole.includes("STORE") || normalizedRole === "STORE") &&
+               normalizedUsername !== "Store Person Nigeria" &&
+               normalizedUsername !== "Store Person HIPL") {
       // Extract store name from username (e.g., "RSIPL Store" -> "RSIPL")
       const storeName = normalizedUsername.replace(/\s+store\s*$/i, "").trim();
       if (storeName) {
@@ -1092,7 +1094,9 @@ export const getAllLocalPurchaseForms = async (req, res) => {
 
     if (normalizedRole === "PSE") filter = { submittedBy: normalizedUsername };
     else if (normalizedRole === "PA") filter = { doerName: normalizedUsername };
-    else if (normalizedRole === "STORE") {
+    else if ((normalizedRole.includes("STORE") || normalizedRole === "STORE") &&
+             normalizedUsername !== "Store Person Nigeria" &&
+             normalizedUsername !== "Store Person HIPL") {
       // Extract store name from username (e.g., "RSIPL Store" -> "RSIPL")
       const storeName = normalizedUsername.replace(/\s+store\s*$/i, "").trim();
       if (storeName) {
@@ -1169,7 +1173,22 @@ export const getVendorMasterList = async (req, res) => {
 
 export const showAllIndentForms = async (req, res) => {
   try {
-    const forms = await Purchase.find().sort({ createdAt: 1 });
+    const { role, username } = req.query;
+    const normalizedRole = String(role || "").trim().toUpperCase();
+    const normalizedUsername = String(username || "").trim();
+    let filter = {};
+
+    // Apply store filtering if user is a store role, but exclude specific users
+    if ((normalizedRole.includes("STORE") || normalizedRole === "STORE") &&
+        normalizedUsername !== "Store Person Nigeria" &&
+        normalizedUsername !== "Store Person HIPL") {
+      const storeName = normalizedUsername.replace(/\s+store\s*$/i, "").trim();
+      if (storeName) {
+        filter = { site: { $regex: `^${storeName}$`, $options: "i" } };
+      }
+    }
+
+    const forms = await Purchase.find(filter).sort({ createdAt: 1 });
     return res.json({ success: true, data: forms });
   } catch (error) {
     console.error("❌ Error Fetching All Forms:", error);
@@ -1364,9 +1383,25 @@ export const deleteIndentForm = async (req, res) => {
 export const getIndentFormByUniqueId = async (req, res) => {
   try {
     const { uniqueId } = req.params;
-    const form = await Purchase.findOne({ uniqueId });
+    const { username, role } = req.authUser || {};
+    const normalizedRole = String(role || "").trim().toUpperCase();
+    const normalizedUsername = String(username || "").trim();
+
+    let filter = { uniqueId };
+
+    // Apply store filtering if user is a store role, but exclude specific users
+    if ((normalizedRole.includes("STORE") || normalizedRole === "STORE") &&
+        normalizedUsername !== "Store Person Nigeria" &&
+        normalizedUsername !== "Store Person HIPL") {
+      const storeName = normalizedUsername.replace(/\s+store\s*$/i, "").trim();
+      if (storeName) {
+        filter.site = { $regex: `^${storeName}$`, $options: "i" };
+      }
+    }
+
+    const form = await Purchase.findOne(filter);
     if (!form) {
-      return res.status(404).json({ success: false, message: "Unique ID not found" });
+      return res.status(404).json({ success: false, message: "Unique ID not found or access denied" });
     }
     return res.json({ success: true, data: form });
   } catch (error) {
@@ -1378,13 +1413,28 @@ export const getIndentFormByUniqueId = async (req, res) => {
 export const manualCloseStoreByUniqueId = async (req, res) => {
   try {
     const { uniqueId, closedBy = "", reason = "" } = req.body || {};
+    const { username, role } = req.authUser || {};
+    const normalizedRole = String(role || "").trim().toUpperCase();
+    const normalizedUsername = String(username || "").trim();
 
     if (!uniqueId) return res.status(400).json({ success: false, message: "uniqueId is required" });
     if (!reason || !String(reason).trim()) return res.status(400).json({ success: false, message: "reason is required" });
 
-    const purchases = await Purchase.find({ uniqueId });
+    let filter = { uniqueId };
+
+    // Apply store filtering if user is a store role, but exclude specific users
+    if ((normalizedRole.includes("STORE") || normalizedRole === "STORE") &&
+        normalizedUsername !== "Store Person Nigeria" &&
+        normalizedUsername !== "Store Person HIPL") {
+      const storeName = normalizedUsername.replace(/\s+store\s*$/i, "").trim();
+      if (storeName) {
+        filter.site = { $regex: `^${storeName}$`, $options: "i" };
+      }
+    }
+
+    const purchases = await Purchase.find(filter);
     if (!purchases || purchases.length === 0) {
-      return res.status(404).json({ success: false, message: "Unique ID not found" });
+      return res.status(404).json({ success: false, message: "Unique ID not found or access denied" });
     }
 
     const toClose = purchases.filter((p) => {
@@ -1455,8 +1505,10 @@ export const getManualClosedStoreItems = async (req, res) => {
     const normalizedUsername = String(username || "").trim();
     let filter = { storeManualClosed: true };
 
-    // Filter by store name extracted from username (e.g., "RSIPL Store" -> "RSIPL")
-    if (normalizedUsername) {
+    // Filter by store name extracted from username, but exclude specific users
+    if (normalizedUsername &&
+        normalizedUsername !== "Store Person Nigeria" &&
+        normalizedUsername !== "Store Person HIPL") {
       const storeName = normalizedUsername.replace(/\s+store\s*$/i, "").trim();
       if (storeName) {
         // Use case-insensitive regex to match site
