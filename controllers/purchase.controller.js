@@ -949,6 +949,13 @@ export const getAllIndentForms = async (req, res) => {
       filter = { submittedBy: normalizedUsername };
     } else if (normalizedRole === "PA" && !isDebasishPoUploadOnlyUser) {
       filter = { doerName: normalizedUsername };
+    } else if (normalizedRole === "STORE") {
+      // Extract store name from username (e.g., "RSIPL Store" -> "RSIPL")
+      const storeName = normalizedUsername.replace(/\s+store\s*$/i, "").trim();
+      if (storeName) {
+        // Use case-insensitive regex to match site
+        filter = { site: { $regex: `^${storeName}$`, $options: "i" } };
+      }
     }
 
     const parsedLimit = Number(limit);
@@ -1085,6 +1092,14 @@ export const getAllLocalPurchaseForms = async (req, res) => {
 
     if (normalizedRole === "PSE") filter = { submittedBy: normalizedUsername };
     else if (normalizedRole === "PA") filter = { doerName: normalizedUsername };
+    else if (normalizedRole === "STORE") {
+      // Extract store name from username (e.g., "RSIPL Store" -> "RSIPL")
+      const storeName = normalizedUsername.replace(/\s+store\s*$/i, "").trim();
+      if (storeName) {
+        // Use case-insensitive regex to match site
+        filter = { site: { $regex: `^${storeName}$`, $options: "i" } };
+      }
+    }
 
     const parsedLimit = Number(limit);
     const parsedSkip = Number(skip);
@@ -1436,7 +1451,20 @@ export const manualCloseStoreByUniqueId = async (req, res) => {
 
 export const getManualClosedStoreItems = async (req, res) => {
   try {
-    const rows = await Purchase.find({ storeManualClosed: true }).sort({ storeManualClosedAt: -1 });
+    const { username } = req.body || {};
+    const normalizedUsername = String(username || "").trim();
+    let filter = { storeManualClosed: true };
+
+    // Filter by store name extracted from username (e.g., "RSIPL Store" -> "RSIPL")
+    if (normalizedUsername) {
+      const storeName = normalizedUsername.replace(/\s+store\s*$/i, "").trim();
+      if (storeName) {
+        // Use case-insensitive regex to match site
+        filter.site = { $regex: `^${storeName}$`, $options: "i" };
+      }
+    }
+
+    const rows = await Purchase.find(filter).sort({ storeManualClosedAt: -1 });
     return res.json({ success: true, data: rows });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
